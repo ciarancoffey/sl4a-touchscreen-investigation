@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Surface User <surface@localhost>
+Date: Mon, 15 Jul 2025 19:45:00 +0000
+Subject: [PATCH] spi: amd: Add AMDI0060 support for Surface Laptop 4 AMD
+
+The Surface Laptop 4 AMD uses AMDI0060 as the ACPI ID for its SPI
+controller instead of the expected AMDI0061/0062/0063. This prevents
+the touchscreen (MSHW0231) from working as it's an SPI HID device.
+
+Add AMDI0060 to the list of supported ACPI IDs in the spi-amd driver.
+
+Signed-off-by: Surface User <surface@localhost>
+---
+ drivers/spi/spi-amd.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/spi/spi-amd.c b/drivers/spi/spi-amd.c
+index 111111111111..222222222222 100644
+--- a/drivers/spi/spi-amd.c
++++ b/drivers/spi/spi-amd.c
+@@ -320,6 +320,7 @@ static int amd_spi_probe(struct platform_device *pdev)
+ }
+ 
+ static const struct acpi_device_id spi_acpi_match[] = {
++	{ "AMDI0060", 0 },	/* Surface Laptop 4 AMD */
+ 	{ "AMDI0061", 0 },
+ 	{ "AMDI0062", 0 },
+ 	{ "AMDI0063", 0 },
+-- 
+2.35.1
