@@ -48,6 +48,8 @@
 #include <linux/dma-mapping.h>
 #include <linux/crc32.h>
 #include <linux/kernel.h>
+#include <linux/gpio.h>
+#include <linux/gpio/consumer.h>
 
 #include "spi-hid-core.h"
 #include "spi-hid_trace.h"
@@ -283,7 +285,50 @@ static int spi_hid_reset_via_acpi(struct spi_hid *shid)
 {
 	acpi_handle handle = ACPI_HANDLE(&shid->spi->dev);
 	acpi_status status;
+	struct device *dev = &shid->spi->dev;
 
+	/* MSHW0231 specific GPIO reset sequence */
+	if (acpi_dev_hid_uid_match(ACPI_COMPANION(dev), "MSHW0231", NULL)) {
+		struct gpio_desc *reset_gpio;
+		
+		dev_info(dev, "MSHW0231: Attempting GPIO reset on pin 132\n");
+		
+		/* Try to get GPIO 132 for reset */
+		reset_gpio = gpio_to_desc(644); /* GPIO 132 + 512 offset = 644 */
+		if (!reset_gpio) {
+			dev_warn(dev, "MSHW0231: Could not get GPIO 132 descriptor, trying ACPI reset\n");
+			goto acpi_reset;
+		}
+		
+		/* Request GPIO for reset */
+		if (gpio_request(644, "mshw0231-reset") != 0) {
+			dev_warn(dev, "MSHW0231: Could not request GPIO 132, trying ACPI reset\n");
+			goto acpi_reset;
+		}
+		
+		/* Perform Windows-like reset sequence */
+		dev_info(dev, "MSHW0231: Performing Windows-style GPIO reset sequence\n");
+		
+		/* First, ensure pin is in input mode then switch to output */
+		gpio_direction_input(644);
+		msleep(10);
+		
+		/* Now perform reset: High -> Low -> High (active low reset) */
+		gpio_direction_output(644, 1); /* Start high (not reset) */
+		msleep(20);
+		gpio_set_value(644, 0); /* Assert reset (low) */
+		msleep(100); /* Hold reset longer like Windows */
+		gpio_set_value(644, 1); /* Deassert reset (high) */
+		msleep(1000); /* Wait much longer for full Windows-style init */
+		
+		dev_info(dev, "MSHW0231: Extended Windows-style initialization complete\n");
+		
+		gpio_free(644);
+		dev_info(dev, "MSHW0231: GPIO reset sequence completed\n");
+		return 0;
+	}
+
+acpi_reset:
 	status = acpi_evaluate_object(handle, "_RST", NULL, NULL);
 	if (ACPI_FAILURE(status))
 		return -EFAULT;
@@ -436,6 +481,24 @@ static int spi_hid_input_report_handler(struct spi_hid *shid,
 	}
 
 	spi_hid_input_report_prepare(buf, &r);
+
+	/* MSHW0231 Multi-Collection Filtering: Only process Collection 06 (touchscreen) reports */
+	if (shid->desc.vendor_id == 0x045e && shid->desc.product_id == 0x0231) {
+		/* For MSHW0231, check if this report is from Collection 06 (touchscreen) */
+		/* Collection ID is typically in the first byte of HID reports */
+		if (r.content_length > 0) {
+			u8 collection_id = r.content[0] >> 4; /* Upper nibble often contains collection */
+			dev_dbg(dev, "MSHW0231 report: collection_id=0x%02x, content_id=0x%02x, length=%d\n",
+				collection_id, r.content_id, r.content_length);
+			
+			/* Only process reports from Collection 06 (touchscreen) */
+			if (collection_id != 0x06) {
+				dev_dbg(dev, "discarding report from collection 0x%02x (not touchscreen)\n", collection_id);
+				return 0;
+			}
+			dev_info(dev, "Processing touchscreen report from Collection 06\n");
+		}
+	}
 
 	if (shid->perf_mode &&
 			(r.content_id == SPI_HID_RIGHT_SCREEN_TOUCH_HEAT_MAP_REPORT_ID ||
@@ -720,6 +783,14 @@ static int spi_hid_create_device(struct spi_hid *shid)
 	snprintf(hid->name, sizeof(hid->name), "spi %04hX:%04hX",
 			hid->vendor, hid->product);
 	strscpy(hid->phys, dev_name(&shid->spi->dev), sizeof(hid->phys));
+
+	/* MSHW0231 Multi-Collection Support: Target Collection 06 (touchscreen) */
+	if (shid->desc.vendor_id == 0x045e && shid->desc.product_id == 0x0231) {
+		dev_info(dev, "MSHW0231 detected: Creating touchscreen collection (COL06)\n");
+		/* Set collection ID to 0x06 for touchscreen collection */
+		hid->group = HID_GROUP_MULTITOUCH;
+		snprintf(hid->name, sizeof(hid->name), "Surface Touch Screen Device");
+	}
 
 	shid->hid = hid;
 
