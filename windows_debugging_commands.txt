@@ -1,0 +1,154 @@
+# Windows Debugging Commands - Surface Laptop 4 AMD Touchscreen
+
+## Quick Setup Commands (Run as Administrator)
+
+### 1. Start ETW Tracing (Before touchscreen use)
+```cmd
+# General system trace with drivers
+wpr -start generalprofile -start drivers -start heapprofile
+
+# Or specific SPI/HID tracing
+tracelog -start TouchscreenTrace -f c:\traces\touchscreen.etl -guid {D75F6FE7-2E89-4B21-99F8-E8E8CEBB7D4F} -flag 0xFFFFFFFF -level 5
+```
+
+### 2. Capture Device Manager Actions
+```cmd
+# Start ProcMon with filters for:
+# - Process: mmc.exe (Device Manager)
+# - Process: svchost.exe
+# - Operation: Process and Thread Activity
+# Enable: Show Registry Activity, Show File System Activity
+```
+
+### 3. SPI Controller Specific Tracing
+```cmd
+# Enable SPI controller debugging
+reg add "HKLM\SYSTEM\CurrentControlSet\Services\spiamd\Parameters" /v DebugLevel /t REG_DWORD /d 0xFFFFFFFF
+reg add "HKLM\SYSTEM\CurrentControlSet\Services\spiamd\Parameters" /v DebugFlags /t REG_DWORD /d 0xFFFFFFFF
+
+# Restart SPI service
+sc stop spiamd
+sc start spiamd
+```
+
+### 4. HID Tracing Commands
+```cmd
+# Start HID ETW session
+tracelog -start HidTrace -f c:\traces\hid.etl -guid {896F2806-9D0E-4D5F-AA25-7ACBBC6AC4C2} -flag 0xFFFFFFFF -level 5
+
+# Additional HID providers
+tracelog -enable HidTrace -guid {30E1D284-5D88-459C-83FD-6345B39B19EC} -flag 0xFFFFFFFF
+```
+
+### 5. Stop Tracing and Collect
+```cmd
+# Stop WPR tracing
+wpr -stop c:\traces\surface_touchscreen.etl
+
+# Stop manual traces
+tracelog -stop TouchscreenTrace
+tracelog -stop HidTrace
+
+# Convert ETL to readable format
+tracerpt c:\traces\surface_touchscreen.etl -o c:\traces\surface_touchscreen.xml -of XML
+```
+
+## Test Scenarios to Capture
+
+### Scenario 1: Cold Boot
+1. Start tracing immediately after Windows login
+2. Wait for touchscreen to become available
+3. Perform first touch
+4. Stop tracing
+
+### Scenario 2: Driver Restart
+1. Start tracing
+2. Device Manager → Disable MSHW0231 device
+3. Wait 10 seconds
+4. Enable MSHW0231 device
+5. Test touchscreen functionality
+6. Stop tracing
+
+### Scenario 3: Sleep/Wake
+1. Start tracing
+2. Put system to sleep
+3. Wake system
+4. Test touchscreen
+5. Stop tracing
+
+### Scenario 4: SPI Controller Reset
+1. Start tracing
+2. Device Manager → Disable AMD SPI controller
+3. Enable AMD SPI controller
+4. Wait for touchscreen re-enumeration
+5. Test functionality
+6. Stop tracing
+
+## Registry Keys to Monitor
+
+```cmd
+# Surface-specific registry locations
+HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\MSHW0231
+HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\AMDI0060
+HKLM\SYSTEM\CurrentControlSet\Services\spiamd
+HKLM\SYSTEM\CurrentControlSet\Services\HidSpiCx
+
+# Export current settings
+reg export "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\MSHW0231" c:\traces\mshw0231_registry.reg
+reg export "HKLM\SYSTEM\CurrentControlSet\Services\spiamd" c:\traces\spiamd_registry.reg
+```
+
+## Device Manager Information to Collect
+
+1. **MSHW0231 Properties:**
+   - Hardware IDs
+   - Compatible IDs  
+   - Driver details (version, date, provider)
+   - Resources (IRQ, Memory, I/O)
+
+2. **AMDI0060 Properties:**
+   - Driver details
+   - Resources
+   - Power management settings
+
+3. **Device Status:**
+   - Any error codes
+   - Power state information
+   - Last installed timestamp
+
+## PowerShell Commands for Device Info
+
+```powershell
+# Get detailed device information
+Get-WmiObject Win32_PnPEntity | Where-Object {$_.DeviceID -like "*MSHW0231*"} | Format-List *
+Get-WmiObject Win32_PnPEntity | Where-Object {$_.DeviceID -like "*AMDI0060*"} | Format-List *
+
+# Get HID device information
+Get-WmiObject Win32_SystemDriver | Where-Object {$_.Name -like "*hid*"} | Format-List *
+
+# Export to files
+Get-WmiObject Win32_PnPEntity | Where-Object {$_.DeviceID -like "*MSHW0231*"} | Out-File c:\traces\mshw0231_wmi.txt
+```
+
+## Files to Collect
+
+1. **ETL Traces:** c:\traces\*.etl
+2. **Registry Exports:** c:\traces\*.reg  
+3. **Device Information:** c:\traces\*.txt
+4. **Driver Files:** Copy from C:\Windows\System32\drivers\
+   - spiamd.sys
+   - HidSpiCx.sys
+   - Any Surface-specific drivers
+
+## Analysis Tools for Linux
+
+Once files are collected, analyze on Linux:
+```bash
+# Convert ETL files (if tools available)
+# Extract registry information
+# Compare with Linux sysfs data
+# Identify timing and sequence differences
+```
+
+---
+**Important:** Run all commands as Administrator and ensure sufficient disk space for traces.

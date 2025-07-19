@@ -271,6 +271,10 @@ struct spi_hid {
 	u8 latency_index;
 	u8 perf_mode;
 	u16 touch_signature_index;
+	
+	/* MSHW0231 multi-collection support */
+	u8 target_collection;
+	bool collection_06_parsed;
 };
 
 #endif
