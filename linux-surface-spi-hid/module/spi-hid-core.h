@@ -13,6 +13,26 @@
 #define SPI_HID_CORE_H
 
 #include <linux/kernel.h>
+
+/* MSHW0231 Windows-compatible multi-collection definitions */
+#define MSHW0231_COLLECTION_TOUCH_COMM		0x01	/* Surface Touch Communications */
+#define MSHW0231_COLLECTION_PEN_PROCESSOR	0x02	/* Surface Touch Pen Processor */ 
+#define MSHW0231_COLLECTION_DIGITIZER_UTIL	0x03	/* Surface Digitizer Utility */
+#define MSHW0231_COLLECTION_TOUCHSCREEN		0x06	/* Surface Touch Screen Device (main) */
+#define MSHW0231_COLLECTION_PEN_BLE		0x07	/* Surface Pen BLE LC Adaptation */
+
+/* Windows-style interrupt-driven SPI initialization stages */
+#define MSHW0231_STAGE_INITIAL			0x00	/* Device detection */
+#define MSHW0231_STAGE_ACPI_SETUP		0x01	/* ACPI _DSM calls */
+#define MSHW0231_STAGE_GPIO_RESET		0x02	/* GPIO reset sequence */
+#define MSHW0231_STAGE_SMALL_COMMANDS		0x03	/* 12-byte commands */
+#define MSHW0231_STAGE_MEDIUM_COMMANDS		0x04	/* 50-byte commands */
+#define MSHW0231_STAGE_LARGE_COMMANDS		0x05	/* 132-byte commands */
+#define MSHW0231_STAGE_FULL_OPERATIONAL		0x06	/* Device ready */
+
+/* Windows timing constants from trace analysis */
+#define MSHW0231_WINDOWS_IRQ			1033	/* IRQ from Windows traces */
+#define MSHW0231_STAGE_DELAY_MS			255	/* 255ms delays from Windows */
 #include <linux/completion.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/spi/spi.h>
@@ -272,9 +292,17 @@ struct spi_hid {
 	u8 perf_mode;
 	u16 touch_signature_index;
 	
-	/* MSHW0231 multi-collection support */
+	/* MSHW0231 multi-collection support - Windows compatibility */
 	u8 target_collection;
 	bool collection_06_parsed;
+	bool windows_multi_collection_mode;
+	
+	/* Windows-style interrupt-driven SPI support */
+	bool interrupt_driven_mode;
+	struct work_struct staged_init_work;
+	struct timer_list staging_timer;
+	u8 initialization_stage;
+	u32 windows_irq_number;		/* IRQ 1033 from Windows traces */
 };
 
 #endif
